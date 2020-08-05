@@ -1,42 +1,8 @@
-const readline = require('readline');
 const { exec } = require('child_process');
 const axios = require('axios');
-const shell = require('shelljs');
 const fs = require('fs');
 const inquirer = require('inquirer');
-const yargs = require("yargs");
-
-
 const { blank } = require('./templates');
-const { option } = require('yargs');
-// const options = yargs
-//   .usage('Usage: -f <filename> --user1="<user1_name>" --user2="<user2_name>"')
-//   .option("f", {
-//     alias: "file",
-//     describe: "Filename contains your messages",
-//     type: "string",
-//     demandOption: true,
-//   }).argv;
-
-/**
- * 1. repoya bakıp android & ios paket analizi
- * 2. (android & ios var ya da yok bilgilendirme ve yapılacağı sorma)
- *  2.1 saf js ise
- *      a. browserda aç
- *          a.1 Continue? (2.1)
- *      b. npm install and continue
- *      c. install with version(latest) and continue
- *      d. save to the uninstalled packages, I will install later
- *  2.2 native moodulleri varsa
- *      a. browserda aç
- *          a.1 Continue? (2.2)
- *      b. npm install and react-native link
- *          b.1 Run?
- *      c. install with version and react-native link
- * 
- * 
- * 
- */
 
 const ACTIONS = {
     NEW: 'Create new project',
@@ -47,7 +13,8 @@ const OPTIONS = {
     OPEN: 'open repository with browser',
     INSTALL: 'npm install latest',
     INSTALL_SPESIFIC: 'npm install with spesific version',
-    CONTINUE: 'continue with next step',
+    NEXT: 'next step',
+    PREVIOUS: 'previous step',
     LINK: 'run react-native link',
     POD_INSTALL: 'run pod install',
     RUN_IOS: 'run ios to check build',
@@ -58,53 +25,22 @@ const OPTIONS = {
 }
 
 
-
-/**
- * Save Link
- * il () {
-        npm install --save "$1"
-        react-native link "$1"
-    }
-    ilri () {
-        npm install --save "$1"
-        react-native link "$1"
-        react-native run-ios
-    }
-
-    ilra () {
-        npm install --save "$1"
-        react-native link "$1"
-        react-native run-android
-    }
- */
-
-
-//WHY /n added to endpoint??
 const checkRepoFolder = async (repoUrl, folderName, folderPath = '/tree/master/') => {
     const endpoint = (repoUrl + folderPath + folderName).replace(/\n/g, '')
     try {
         const response = await axios.get(endpoint);
         if (Number(response.status) === 200) {
-            // console.log('Exist')
             return true;
         }
-        // console.log('Does not exist')
         return false;
     } catch (error) {
-        // fs.writeFileSync(`${endpoint.replace(/\//g, '-')}.json`, JSON.stringify(error));
-        if (Number(error.response.status) === 404) {
-            // console.log('Does not exist')
-        } else {
-            // console.log('Another error occured');
-        }
         return false;
     }
 }
 
 const execute = (command, dir = '.', errorMessage = '') => new Promise((resolve, reject) => {
-    console.log(`cd ${dir} && ${command}`)
+    console.log(`Running ${command}..`)
     exec(`cd ${dir} && ${command}`, (err, stdout, stderr) => {
-        console.warn({ err, stdout, stderr })
         if (err) {
             return reject(errorMessage || err)
         }
@@ -115,13 +51,6 @@ const execute = (command, dir = '.', errorMessage = '') => new Promise((resolve,
         resolve(stdout);
     });
 });
-
-
-const isLastCommandSuccess = async () => {
-    const code = await execute('echo $?');
-    return Number(code) === 0
-}
-
 
 const getRepoUrl = async (packageName) => {
     try {
@@ -166,18 +95,14 @@ const executeOptions = async (option, packageName, projectDir) => {
     try {
         switch (option) {
             case OPTIONS.LINK:
-                console.log(`npx react-native link ${packageName}`)
-                await execute(`npx react-native link ${packageName}`, projectDir);
+                exec(`cd ${projectDir} && npx react-native link ${packageName}`);
+                console.log('OK Linked');
                 break;
             case OPTIONS.POD_INSTALL:
                 await execute(`cd ios && pod install`, projectDir);
                 break;
             case OPTIONS.WAIT:
                 console.log('OK, continue with below choices when you are done')
-                break;
-            case OPTIONS.DONE:
-                break;
-            case OPTIONS.CONTINUE:
                 break;
             case OPTIONS.INSTALL:
                 await execute(`npm install ${packageName}`, projectDir);
@@ -187,7 +112,7 @@ const executeOptions = async (option, packageName, projectDir) => {
                 await execute(`npm install ${packageName}@${version}`, projectDir);
                 break;
             case OPTIONS.OPEN:
-                await execute(`npm repo ${packageName}`, projectDir);
+                await execute(`npm repo ${packageName}`);
                 break;
             case OPTIONS.RUN_ANDROID:
                 await execute(`npx react-native run-android`, projectDir);
@@ -202,11 +127,70 @@ const executeOptions = async (option, packageName, projectDir) => {
     } catch (error) {
         console.log('[ERROR] ', error)
     }
-
 }
 
 const choices = prompt({ type: 'list', name: 'option' });
 const question = prompt({ type: 'input', name: 'question' });
+
+
+const STEPS = {
+    JS: [{
+        message: ({ packageName }) => `INSTALL STEP: JUST JS, ${packageName} has not android or ios folder.`,
+        options: [
+            OPTIONS.INSTALL,
+            OPTIONS.INSTALL_SPESIFIC,
+            OPTIONS.OPEN,
+            OPTIONS.NEXT,
+        ]
+    },
+    {
+        message: () => 'FINAL STEP',
+        options: [
+            OPTIONS.DONE,
+            OPTIONS.PASS,
+            OPTIONS.PREVIOUS
+        ]
+    }],
+    NATIVE: [
+        {
+            message: ({ packageName, hasAndroidFolder, hasIosFolder }) => `INSTALL STEP: HAS NATIVE MODULES ${packageName}. android folder: ${hasAndroidFolder ? '✅' : '❌'} -  ios folder: ${hasIosFolder ? '✅' : '❌'}`,
+            options: [
+                OPTIONS.INSTALL,
+                OPTIONS.INSTALL_SPESIFIC,
+                OPTIONS.OPEN,
+                OPTIONS.NEXT,
+            ]
+        },
+        {
+            message: () => 'LINK STEP',
+            options: [
+                OPTIONS.LINK,
+                OPTIONS.POD_INSTALL,
+                OPTIONS.WAIT,
+                OPTIONS.OPEN,
+                OPTIONS.NEXT,
+                OPTIONS.PREVIOUS
+            ]
+        },
+        {
+            message: () => 'RUN STEP',
+            options: [
+                OPTIONS.RUN_ANDROID,
+                OPTIONS.RUN_IOS,
+                OPTIONS.NEXT,
+                OPTIONS.PREVIOUS
+            ]
+        },
+        {
+            message: () => 'FINAL STEP',
+            options: [
+                OPTIONS.DONE,
+                OPTIONS.PASS,
+                OPTIONS.PREVIOUS
+            ]
+        }
+    ]
+};
 
 (async () => {
     try {
@@ -251,77 +235,33 @@ const question = prompt({ type: 'input', name: 'question' });
                 hasAndroidFolder = await checkRepoFolder(repoUrl, 'android');
                 hasIosFolder = await checkRepoFolder(repoUrl, 'ios');
 
-                let message, option;
+                let option, steps, step;
 
                 if (!hasAndroidFolder && !hasIosFolder) {
                     //JUST JS PACKAGE
-                    message = `INSTALL STEP: JUST JS, ${packageName} has not android or ios folder. It's just js.`,
-                        //FIRST OPERATION (INSTALL)
-                        option = await choices({
-                            message, choices: [
-                                OPTIONS.INSTALL,
-                                OPTIONS.INSTALL_SPESIFIC,
-                                OPTIONS.OPEN,
-                                OPTIONS.CONTINUE,
-                            ]
-                        });
-
-                    await executeOptions(option, packageName, projectDir);
+                    steps = STEPS.JS;
                 } else {
                     //PACKAGE WITH NATIVE MODULES
-                    message = `INSTALL STEP: HAS NATIVE MODULES ${packageName} has android folder ${hasAndroidFolder ? '✅' : '❌'} -  ios folder ${hasIosFolder ? '✅' : '❌'}`;
-                    //FIRST OPERATION (INSTALL)
-                    option = await choices({
-                        message, choices: [
-                            OPTIONS.INSTALL,
-                            OPTIONS.INSTALL_SPESIFIC,
-                            OPTIONS.OPEN,
-                            OPTIONS.CONTINUE,
-                        ]
-                    });
-
-                    await executeOptions(option, packageName, projectDir);
-
-                    //SECOND OPERATION (CONFIG-LINK)
-                    option = await choices({
-                        message: 'LINK STEP', choices: [
-                            OPTIONS.LINK,
-                            OPTIONS.POD_INSTALL,
-                            OPTIONS.WAIT,
-                            OPTIONS.OPEN,
-                            OPTIONS.CONTINUE,
-                        ]
-                    });
-
-                    await executeOptions(option, packageName, projectDir);
-
-                    //THIRD OPERATION (RUN)
-                    option = await choices({
-                        message: 'RUN STEP', choices: [
-                            OPTIONS.RUN_ANDROID,
-                            OPTIONS.RUN_IOS,
-                            OPTIONS.CONTINUE,
-                        ]
-                    });
-
-                    await executeOptions(option, packageName, projectDir);
+                    steps = STEPS.NATIVE;
                 }
 
-                //FINAL OPERATION (DONE OR PASS)
-                option = await choices({
-                    message: 'Final Step',
-                    choices: [
-                        OPTIONS.DONE,
-                        OPTIONS.PASS,
-                    ]
-                });
+                for (let j = 0; j < steps.length; j++) {
+                    step = steps[j];
+                    option = await choices({ message: step.message({ packageName, hasAndroidFolder, hasIosFolder }), choices: step.options });
 
-                if (option === OPTIONS.DONE) {
-                    installed.push(packageName);
-                    delete packages[packageName];
-                    fs.writeFileSync(`${projectDir}/upgradeHelper.json`, JSON.stringify({ installed, packages }));
-                } else if (option === OPTIONS.PASS) {
-                    continue;
+                    if (option === OPTIONS.DONE) {
+                        installed.push(packageName);
+                        delete packages[packageName];
+                        fs.writeFileSync(`${projectDir}/upgradeHelper.json`, JSON.stringify({ installed, packages }));
+                    } else if (option === OPTIONS.PASS) {
+                        break;
+                    } else if (option === OPTIONS.NEXT) {
+                        continue;
+                    } else if (option === OPTIONS.PREVIOUS) {
+                        j -= 2;
+                    } else {
+                        await executeOptions(option, packageName, projectDir);
+                    }
                 }
             } catch (error) {
                 console.error(error);
