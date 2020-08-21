@@ -1,5 +1,1 @@
-const upgradeHelper = require("./lib");
-
-(async () => {
-  await upgradeHelper();
-})();
+require("./lib")();
