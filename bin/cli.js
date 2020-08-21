@@ -1,2 +1,2 @@
-#!/user/bin/env node
-require("./lib")();
+#!/usr/bin/env node
+require("../lib")();
